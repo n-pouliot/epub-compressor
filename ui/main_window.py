@@ -26,7 +26,9 @@ from PyQt6.QtGui import QIcon
 # Import your custom widgets and thread
 from .widgets import DragDropArea, LogPanel
 from .threads import CompressionThread
-from core.epub_handler import get_epub_info
+
+# MODIFIED: Import the estimation function
+from core.epub_handler import get_epub_info, estimate_compressed_size
 
 
 class MainWindow(QMainWindow):
@@ -38,6 +40,8 @@ class MainWindow(QMainWindow):
         self.file_list = []
         self.output_dir = os.path.expanduser("~")  # Default to home dir
         self.compression_thread = None
+        # ADDED: Store info for the currently selected file
+        self.current_file_info = None
 
         self.init_ui()
         self.load_styles()  # Load default theme
@@ -49,7 +53,6 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
 
-        # Splitter for adjustable panes
         splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(splitter)
 
@@ -58,7 +61,6 @@ class MainWindow(QMainWindow):
         left_layout = QVBoxLayout(left_pane)
         splitter.addWidget(left_pane)
 
-        # File Selection Group
         file_group = QGroupBox("1. Select Files")
         file_layout = QVBoxLayout()
 
@@ -80,25 +82,36 @@ class MainWindow(QMainWindow):
         file_group.setLayout(file_layout)
         left_layout.addWidget(file_group)
 
-        # Compression Settings Group
+        # --- Compression Settings Group (Connections Added) ---
         settings_group = QGroupBox("2. Compression Settings")
         settings_layout = QFormLayout()
 
-        # Toggles
         self.cb_compress_images = QCheckBox("Compress Images")
         self.cb_compress_images.setChecked(True)
+        self.cb_compress_images.stateChanged.connect(
+            self.update_estimates
+        )  # Connect signal
+
         self.cb_minify_html = QCheckBox("Minify HTML")
         self.cb_minify_html.setChecked(True)
+        self.cb_minify_html.stateChanged.connect(
+            self.update_estimates
+        )  # Connect signal
+
         self.cb_minify_css = QCheckBox("Minify CSS")
         self.cb_minify_css.setChecked(True)
+        self.cb_minify_css.stateChanged.connect(self.update_estimates)  # Connect signal
+
         self.cb_strip_fonts = QCheckBox("Strip All Fonts (Significant Reduction)")
+        self.cb_strip_fonts.stateChanged.connect(
+            self.update_estimates
+        )  # Connect signal
 
         settings_layout.addRow(self.cb_compress_images)
         settings_layout.addRow(self.cb_minify_html)
         settings_layout.addRow(self.cb_minify_css)
         settings_layout.addRow(self.cb_strip_fonts)
 
-        # Image Quality Slider
         self.image_quality_slider = QSlider(Qt.Orientation.Horizontal)
         self.image_quality_slider.setRange(10, 95)
         self.image_quality_slider.setValue(75)
@@ -110,12 +123,14 @@ class MainWindow(QMainWindow):
         self.image_quality_slider.valueChanged.connect(
             lambda v: self.image_quality_label.setText(f"Image Quality: {v}")
         )
-        settings_layout.addRow(self.image_quality_label, self.image_quality_slider)
+        self.image_quality_slider.valueChanged.connect(
+            self.update_estimates
+        )  # Connect signal
 
+        settings_layout.addRow(self.image_quality_label, self.image_quality_slider)
         settings_group.setLayout(settings_layout)
         left_layout.addWidget(settings_group)
 
-        # Output Directory Group
         output_group = QGroupBox("3. Output")
         output_layout = QVBoxLayout()
         self.output_dir_label = QLabel()
@@ -133,7 +148,6 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_pane)
         splitter.addWidget(right_pane)
 
-        # Info & Summary Group
         self.info_group = QGroupBox("File Info / Summary")
         info_layout = QFormLayout()
         self.info_original_size = QLabel("N/A")
@@ -149,7 +163,6 @@ class MainWindow(QMainWindow):
         self.info_group.setLayout(info_layout)
         right_layout.addWidget(self.info_group)
 
-        # Control & Progress Group
         progress_group = QGroupBox("4. Execute")
         progress_layout = QVBoxLayout()
         self.progress_bar = QProgressBar()
@@ -159,7 +172,7 @@ class MainWindow(QMainWindow):
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.start_button = QPushButton("Start Compression")
         self.start_button.clicked.connect(self.start_compression)
-        self.start_button.setObjectName("StartButton")  # For styling
+        self.start_button.setObjectName("StartButton")
 
         progress_layout.addWidget(self.progress_bar)
         progress_layout.addWidget(self.progress_label)
@@ -167,7 +180,6 @@ class MainWindow(QMainWindow):
         progress_group.setLayout(progress_layout)
         right_layout.addWidget(progress_group)
 
-        # Log Panel Group
         log_group = QGroupBox("Operation Log")
         log_layout = QVBoxLayout()
         self.log_panel = LogPanel()
@@ -175,52 +187,25 @@ class MainWindow(QMainWindow):
         log_group.setLayout(log_layout)
         right_layout.addWidget(log_group)
 
-        # Set splitter sizes
         splitter.setSizes([350, 650])
 
-        # Theme toggle button
         self.theme_button = QPushButton("Toggle Dark/Light Mode")
         self.theme_button.clicked.connect(self.toggle_theme)
         left_layout.addWidget(self.theme_button)
         self.current_theme = "light"
 
-    def browse_for_files(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self, "Select EPUB files", os.path.expanduser("~"), "EPUB Files (*.epub)"
-        )
-        if files:
-            self.add_files_to_list(files)
-
-    def add_files_to_list(self, paths):
-        for path in paths:
-            if path not in self.file_list:
-                self.file_list.append(path)
-                item = QListWidgetItem(os.path.basename(path))
-                item.setData(Qt.ItemDataRole.UserRole, path)  # Store full path
-                self.file_list_widget.addItem(item)
-        if self.file_list_widget.count() > 0:
-            self.file_list_widget.setCurrentRow(0)
-
-    def select_output_directory(self):
-        directory = QFileDialog.getExistingDirectory(
-            self, "Select Output Directory", self.output_dir
-        )
-        if directory:
-            self.output_dir = directory
-            self.update_output_dir_label()
-
-    def update_output_dir_label(self):
-        self.output_dir_label.setText(f"Current: {self.output_dir}")
-
     def on_file_selection_changed(self):
+        self.clear_info_panel()
         selected_items = self.file_list_widget.selectedItems()
         if not selected_items:
-            self.clear_info_panel()
+            self.current_file_info = None
             return
 
         path = selected_items[0].data(Qt.ItemDataRole.UserRole)
-        info = get_epub_info(path)
-        if info:
+        # MODIFIED: Store the info and update estimates
+        self.current_file_info = get_epub_info(path)
+        if self.current_file_info:
+            info = self.current_file_info
             self.info_original_size.setText(
                 f"{info['total_size'] / 1024 / 1024:.2f} MB"
             )
@@ -230,18 +215,47 @@ class MainWindow(QMainWindow):
             self.info_font_count.setText(
                 f"{info['fonts']} ({info['font_size'] / 1024:.1f} KB)"
             )
-            # Add estimation logic here later
-            self.info_final_size.setText("~ MB")
-            self.info_reduction.setText("~ %")
+            self.update_estimates()  # Update estimates for the new file
         else:
-            self.clear_info_panel()
+            self.current_file_info = None
 
-    def clear_info_panel(self):
-        self.info_original_size.setText("N/A")
-        self.info_final_size.setText("N/A")
-        self.info_reduction.setText("N/A")
-        self.info_image_count.setText("N/A")
-        self.info_font_count.setText("N/A")
+    def update_estimates(self):
+        """Calculates and displays the estimated final size."""
+        if not self.current_file_info:
+            return
+
+        # Gather current options from the UI
+        options = {
+            "compress_images": self.cb_compress_images.isChecked(),
+            "minify_html": self.cb_minify_html.isChecked(),
+            "minify_css": self.cb_minify_css.isChecked(),
+            "strip_fonts": self.cb_strip_fonts.isChecked(),
+            "image_options": {"quality": self.image_quality_slider.value()},
+        }
+
+        # Get the estimate
+        estimate_data = estimate_compressed_size(self.current_file_info, options)
+
+        # Update the UI labels
+        self.info_final_size.setText(
+            f"~ {estimate_data['estimated_size'] / 1024 / 1024:.2f} MB"
+        )
+        self.info_reduction.setText(f"~ {estimate_data['reduction_percent']:.1f} %")
+
+    def get_current_options(self):
+        """Helper function to gather all settings from the UI."""
+        return {
+            "compress_images": self.cb_compress_images.isChecked(),
+            "minify_html": self.cb_minify_html.isChecked(),
+            "minify_css": self.cb_minify_css.isChecked(),
+            "strip_fonts": self.cb_strip_fonts.isChecked(),
+            "image_options": {
+                "quality": self.image_quality_slider.value(),
+                "max_width": 1200,
+                "max_height": 1600,
+                "convert_to_jpeg": True,
+            },
+        }
 
     def start_compression(self):
         if not self.file_list:
@@ -250,7 +264,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Fidelity Warning
         if self.cb_strip_fonts.isChecked():
             reply = QMessageBox.question(
                 self,
@@ -266,18 +279,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.log_panel.clear()
 
-        options = {
-            "compress_images": self.cb_compress_images.isChecked(),
-            "minify_html": self.cb_minify_html.isChecked(),
-            "minify_css": self.cb_minify_css.isChecked(),
-            "strip_fonts": self.cb_strip_fonts.isChecked(),
-            "image_options": {
-                "quality": self.image_quality_slider.value(),
-                "max_width": 1200,  # Example, could be made configurable
-                "max_height": 1600,
-                "convert_to_jpeg": True,
-            },
-        }
+        options = self.get_current_options()
 
         self.compression_thread = CompressionThread(
             self.file_list, self.output_dir, options
@@ -288,13 +290,50 @@ class MainWindow(QMainWindow):
         self.compression_thread.all_finished.connect(self.on_all_finished)
         self.compression_thread.start()
 
+    # --- Other methods (browse_for_files, add_files_to_list, etc.) remain unchanged ---
+    # The below code is unchanged from the previous version but included for completeness.
+
+    def browse_for_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select EPUB files", os.path.expanduser("~"), "EPUB Files (*.epub)"
+        )
+        if files:
+            self.add_files_to_list(files)
+
+    def add_files_to_list(self, paths):
+        for path in paths:
+            if path not in self.file_list:
+                self.file_list.append(path)
+                item = QListWidgetItem(os.path.basename(path))
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                self.file_list_widget.addItem(item)
+        if self.file_list_widget.count() > 0:
+            self.file_list_widget.setCurrentRow(0)
+
+    def select_output_directory(self):
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select Output Directory", self.output_dir
+        )
+        if directory:
+            self.output_dir = directory
+            self.update_output_dir_label()
+
+    def update_output_dir_label(self):
+        self.output_dir_label.setText(f"Current: {self.output_dir}")
+
+    def clear_info_panel(self):
+        self.info_original_size.setText("N/A")
+        self.info_final_size.setText("N/A")
+        self.info_reduction.setText("N/A")
+        self.info_image_count.setText("N/A")
+        self.info_font_count.setText("N/A")
+
     def update_progress(self, value, message):
         self.progress_bar.setValue(value)
         self.progress_bar.setFormat(f"{message} - %p%")
         self.progress_label.setText(message)
 
     def on_file_finished(self, stats):
-        # Update the specific item in the list view
         for i in range(self.file_list_widget.count()):
             item = self.file_list_widget.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == stats["input_path"]:
@@ -310,9 +349,9 @@ class MainWindow(QMainWindow):
         self.progress_label.setText("All tasks complete.")
         self.progress_bar.setValue(100)
         QMessageBox.information(self, "Success", "All EPUB files have been processed.")
-        # Clear list after successful compression
         self.file_list_widget.clear()
         self.file_list.clear()
+        self.clear_info_panel()
 
     def toggle_theme(self):
         if self.current_theme == "light":
@@ -330,12 +369,10 @@ class MainWindow(QMainWindow):
                 self.setStyleSheet(f.read())
         except FileNotFoundError:
             print(f"Stylesheet not found: {theme_path}")
-            # Apply a default basic style if file is missing
             self.setStyleSheet("QMainWindow { background-color: #e0e0e0; }")
 
     def closeEvent(self, event):
-        """Ensure thread is stopped when closing window."""
         if self.compression_thread and self.compression_thread.isRunning():
             self.compression_thread.stop()
-            self.compression_thread.wait()  # Wait for thread to finish
+            self.compression_thread.wait()
         event.accept()

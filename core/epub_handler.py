@@ -1,7 +1,9 @@
 # core/epub_handler.py
 import os
 import shutil
-from ebooklib import epub
+
+# CORRECTED IMPORT: ITEM constants are in the top-level ebooklib module
+from ebooklib import epub, ITEM_IMAGE, ITEM_DOCUMENT, ITEM_STYLE, ITEM_FONT
 from . import compressor
 
 
@@ -33,16 +35,17 @@ def get_epub_info(path):
         name = item.get_name()
         info["file_list"].append(name)
 
-        if item.get_type() == epub.ITEM_IMAGE:
+        # CORRECTED: Removed 'epub.' prefix from ITEM constants
+        if item.get_type() == ITEM_IMAGE:
             info["images"] += 1
             info["image_size"] += size
-        elif item.get_type() == epub.ITEM_DOCUMENT:
+        elif item.get_type() == ITEM_DOCUMENT:
             info["html"] += 1
             info["html_size"] += size
-        elif item.get_type() == epub.ITEM_STYLE:
+        elif item.get_type() == ITEM_STYLE:
             info["css"] += 1
             info["css_size"] += size
-        elif item.get_type() == epub.ITEM_FONT:
+        elif item.get_type() == ITEM_FONT:
             info["fonts"] += 1
             info["font_size"] += size
         else:
@@ -50,6 +53,52 @@ def get_epub_info(path):
             info["other_size"] += size
 
     return info
+
+
+def estimate_compressed_size(info, options):
+    """
+    Estimates the final compressed size based on the selected options
+    without performing the actual compression.
+    """
+    if not info:
+        return {"estimated_size": 0, "reduction_percent": 0}
+
+    estimated_size = info["total_size"]
+
+    # Estimate savings from minification (these are rough estimates)
+    if options.get("minify_html"):
+        estimated_size -= info["html_size"] * 0.20  # Assume 20% reduction
+    if options.get("minify_css"):
+        estimated_size -= info["css_size"] * 0.30  # Assume 30% reduction
+
+    # Estimate savings from stripping fonts (this is accurate)
+    if options.get("strip_fonts"):
+        estimated_size -= info["font_size"]
+
+    # Estimate savings from image compression
+    if options.get("compress_images"):
+        image_opts = options["image_options"]
+        quality = image_opts.get("quality", 75)
+
+        # This is a heuristic. We assume higher quality means less compression.
+        # A quality of 95 (max) gives minimal reduction. A quality of 10 (min) gives max reduction.
+        # We'll map the 10-95 quality range to a 15%-85% size reduction.
+        reduction_factor = 0.85 - ((quality - 10) / (95 - 10) * 0.70)
+
+        size_reduction = info["image_size"] * reduction_factor
+        estimated_size -= size_reduction
+
+    if estimated_size < 0:
+        estimated_size = 0  # Can't have a negative size
+
+    original_size = info["total_size"]
+    reduction_percent = (
+        ((original_size - estimated_size) / original_size * 100)
+        if original_size > 0
+        else 0
+    )
+
+    return {"estimated_size": estimated_size, "reduction_percent": reduction_percent}
 
 
 def compress_epub_file(
@@ -73,8 +122,9 @@ def compress_epub_file(
         file_name = item.get_name()
         original_item_size = len(item.get_content())
 
+        # CORRECTED: Removed 'epub.' prefix from ITEM constants
         # 1. Compress Images
-        if item.get_type() == epub.ITEM_IMAGE and options.get("compress_images"):
+        if item.get_type() == ITEM_IMAGE and options.get("compress_images"):
             progress_callback(progress, f"Compressing image: {file_name}")
             compressed_bytes, new_ext = compressor.compress_image(
                 item.get_content(), options["image_options"]
@@ -92,19 +142,19 @@ def compress_epub_file(
                 log_callback(f"  - Skipped {file_name}, no size improvement.")
 
         # 2. Minify HTML
-        elif item.get_type() == epub.ITEM_DOCUMENT and options.get("minify_html"):
+        elif item.get_type() == ITEM_DOCUMENT and options.get("minify_html"):
             progress_callback(progress, f"Minifying HTML: {file_name}")
             minified_content = compressor.minify_content(item.get_content(), "html")
             item.set_content(minified_content)
 
         # 3. Minify CSS
-        elif item.get_type() == epub.ITEM_STYLE and options.get("minify_css"):
+        elif item.get_type() == ITEM_STYLE and options.get("minify_css"):
             progress_callback(progress, f"Minifying CSS: {file_name}")
             minified_content = compressor.minify_content(item.get_content(), "css")
             item.set_content(minified_content)
 
         # 4. Mark Fonts for Removal
-        elif item.get_type() == epub.ITEM_FONT and options.get("strip_fonts"):
+        elif item.get_type() == ITEM_FONT and options.get("strip_fonts"):
             log_callback(f"Marking font for removal: {file_name}")
             items_to_remove.append(item)
 
@@ -115,9 +165,10 @@ def compress_epub_file(
     # 5. If fonts were stripped, also remove their rules from CSS files
     if options.get("strip_fonts"):
         log_callback("Stripping @font-face rules from CSS files...")
-        for item in book.get_items_of_type(epub.ITEM_STYLE):
+        # CORRECTED: Removed 'epub.' prefix from ITEM_STYLE
+        for item in book.get_items_of_type(ITEM_STYLE):
             cleaned_css = compressor.strip_font_rules_from_css(item.get_content())
-            item.set_content(cleaned_css)
+            item.set_content(cleaned_css.encode("utf-8"))
 
     # Actually remove the marked items from the book manifest
     for item in items_to_remove:
