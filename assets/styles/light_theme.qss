@@ -1,0 +1,101 @@
+/* assets/styles/light_theme.qss */
+QWidget {
+    background-color: #f0f0f0;
+    color: #111;
+    font-family: 'Segoe UI', Arial, sans-serif;
+}
+
+QGroupBox {
+    font-weight: bold;
+    font-size: 14px;
+    border: 1px solid #dcdcdc;
+    border-radius: 8px;
+    margin-top: 10px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 0 10px;
+}
+
+QPushButton {
+    background-color: #e1e1e1;
+    color: #111;
+    border: 1px solid #adadad;
+    padding: 8px 16px;
+    border-radius: 5px;
+}
+
+QPushButton:hover {
+    background-color: #e9e9e9;
+    border: 1px solid #0078d7;
+}
+
+QPushButton:pressed {
+    background-color: #cce4f7;
+}
+
+QPushButton#StartButton {
+    background-color: #0078d7;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+QPushButton#StartButton:hover {
+    background-color: #106ebe;
+}
+
+QListWidget {
+    background-color: #ffffff;
+    border: 1px solid #dcdcdc;
+    border-radius: 5px;
+}
+
+QListWidget::item:alternate {
+    background-color: #f7f7f7;
+}
+
+QListWidget::item:selected {
+    background-color: #0078d7;
+    color: white;
+}
+
+QProgressBar {
+    border: 1px solid #dcdcdc;
+    border-radius: 5px;
+    text-align: center;
+    color: #111;
+}
+
+QProgressBar::chunk {
+    background-color: #0078d7;
+    border-radius: 5px;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid #dcdcdc;
+    height: 8px;
+    background: #e1e1e1;
+    margin: 2px 0;
+    border-radius: 4px;
+}
+
+QSlider::handle:horizontal {
+    background: #0078d7;
+    border: 1px solid #005a9e;
+    width: 18px;
+    margin: -5px 0;
+    border-radius: 9px;
+}
+
+QCheckBox, QLabel {
+    background-color: transparent;
+}
+
+LogPanel {
+     background-color: #ffffff;
+     color: #111;
+     border: 1px solid #ccc;
+}
